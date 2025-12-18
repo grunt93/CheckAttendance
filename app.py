@@ -5,9 +5,14 @@ from selenium.webdriver.support import expected_conditions as EC
 import time
 from collections import defaultdict 
 
+# ===============================================
+#                【設定變數區】
+# ===============================================
+
+# 替換成您的目標登入頁面網址
 LOGIN_URL = "https://std.uch.edu.tw/Std_Xerox/Login_Index.aspx" 
-YOUR_ACCOUNT = "D11213201"
-MY_PASSWORD = "Gg0976682163"
+YOUR_ACCOUNT = "D11213201" # 替換成您的學號/帳號
+MY_PASSWORD = "Gg0976682163" # 替換成您的密碼
 
 # 登入成功後要跳轉的目標網址 (缺曠記錄頁面)
 TARGET_URL = "https://std.uch.edu.tw/Std_Xerox/Miss_ct.aspx" 
@@ -15,6 +20,7 @@ TARGET_URL = "https://std.uch.edu.tw/Std_Xerox/Miss_ct.aspx"
 # 缺曠記錄表格的 ID
 TABLE_ID = "ctl00_ContentPlaceHolder1_gw_absent"
 
+# 課程應計節次因子 (根據您提供的範例.txt資訊)
 COURSE_FACTORS = {
     "程式設計與應用(三)": 4,
     "資料庫系統與實習": 2,
@@ -67,16 +73,15 @@ try:
         for row in rows[1:]:
             cols = row.find_elements(By.TAG_NAME, "td")
             if cols:
-                # 抓取：[日期(索引1), 課程名稱(索引2), 狀態(索引3)]
-                # 僅需課程名稱和狀態來計算節次
+                # 抓取：[課程名稱(索引2), 狀態(索引3)]
                 course_name = cols[2].text
                 absence_status = cols[3].text
                 raw_data.append((course_name, absence_status))
 
     # 5. 統計數據
     
-    # 結構: {課程名稱: {狀態: 數量, 總缺課數量: 數量, 總天數: 計算值}}
-    summary_data = defaultdict(lambda: defaultdict(float)) # 將 defaultdict 的預設類型改為 float
+    # 結構: {課程名稱: {狀態: 數量, 總缺課數量: 數量}}
+    summary_data = defaultdict(lambda: defaultdict(float)) 
     absence_types = ['事假', '病假', '遲到', '曠課'] 
     
     # 遍歷原始資料 (課程名稱, 狀態)
@@ -86,37 +91,37 @@ try:
             summary_data[course_name][status] += 1
             summary_data[course_name]['總缺課數量'] += 1
             
-    # 2. 計算總天數
-    for course_name in summary_data:
-        total_absent = summary_data[course_name]['總缺課數量']
-        factor = COURSE_FACTORS.get(course_name) # 取得課別每日節數
-        
-        if factor and total_absent > 0:
-            # 總缺課數量 / 應計節次 (結果為浮點數)
-            calculated_days = total_absent / factor
-            summary_data[course_name]['總天數'] = calculated_days
-        else:
-             # 如果沒有定義因子或缺課數為零，則總天數為 0.0
-             summary_data[course_name]['總天數'] = 0.0
-    
     # 6. 列印計算後的總結表格
     
     print("\n" + "="*85)
     print("                   【缺曠記錄總結與計算結果】")
     print("="*85)
     
-    if summary_data:
+    if COURSE_FACTORS:
         # 準備要顯示的欄位 
         columns = ['課程名稱'] + absence_types + ['總缺課數量', '總天數']
         output_rows = [columns]
         
-        for course_name, counts in summary_data.items():
+        # 關鍵修改：迭代 COURSE_FACTORS 的鍵，確保輸出包含所有設定的課程名稱
+        for course_name in COURSE_FACTORS.keys():
+            # 即使該課程沒有缺課記錄，defaultdict 機制也會返回一個空的 defaultdict(float)
+            counts = summary_data[course_name] 
+
+            total_absent = counts.get('總缺課數量', 0)
+            factor = COURSE_FACTORS.get(course_name)
+            calculated_days = 0.0
+
+            # 計算總天數：總缺課數量 / 應計節次 (如果因子存在且缺課數大於 0)
+            if factor and total_absent > 0:
+                calculated_days = total_absent / factor
+
             row = [course_name]
             for status in absence_types:
                 row.append(int(counts.get(status, 0))) # 節次數量為整數
-            row.append(int(counts.get('總缺課數量', 0))) # 總節次數量為整數
+            row.append(int(total_absent)) # 總節次數量為整數
+            
             # 總天數為浮點數，格式化為小數點後兩位
-            row.append(f"{counts.get('總天數', 0.0):.2f}") 
+            row.append(f"{calculated_days:.2f}") 
             output_rows.append(row)
             
         # 格式化輸出
@@ -132,7 +137,7 @@ try:
             if i == 0:
                 print("-" * (sum(col_widths) + 3 * (len(col_widths) - 1)))
     else:
-        print("未找到缺曠記錄或表格中沒有資料。")
+        print("COURSE_FACTORS 字典為空，請定義課程資訊。")
         
     print("="*85)
     
