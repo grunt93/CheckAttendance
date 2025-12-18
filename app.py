@@ -3,6 +3,7 @@ from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait 
 from selenium.webdriver.support import expected_conditions as EC 
 import time
+from collections import defaultdict # 用於方便地初始化計數器
 
 # ===============================================
 #                【設定變數區】
@@ -59,36 +60,58 @@ try:
     # 抓取所有行 (Row)
     rows = table.find_elements(By.TAG_NAME, "tr")
     
-    extracted_data = []
+    raw_data = []
     
-    # 抓取表頭 (Header)
-    if rows:
-        header_row = rows[0]
-        # 表頭使用 <th> 標籤
-        headers = [th.text for th in header_row.find_elements(By.TAG_NAME, "th")]
-        extracted_data.append(headers)
-        
-        # 抓取資料行 (從第二行開始)
+    # 抓取資料行 (從第二行開始，忽略表頭)
+    if len(rows) > 1:
         for row in rows[1:]:
-            # 資料使用 <td> 標籤
             cols = row.find_elements(By.TAG_NAME, "td")
             if cols:
-                data_row = [col.text for col in cols]
-                extracted_data.append(data_row)
+                # 抓取：[課程名稱(索引2), 狀態(索引3)]
+                course_name = cols[2].text
+                absence_status = cols[3].text
+                raw_data.append((course_name, absence_status))
+
+    # 5. 統計數據
     
-    # 5. 顯示擷取到的資料
+    # 使用 defaultdict(lambda: defaultdict(int)) 來計數
+    # 結構: {課程名稱: {狀態: 數量, 總計: 數量}}
+    summary_data = defaultdict(lambda: defaultdict(int))
+    absence_types = ['事假', '病假', '遲到', '曠課'] # 依據範例文件定義的順序
     
-    print("\n" + "="*70)
-    print("                      【擷取到的缺曠記錄】")
-    print("="*70)
+    for course_name, status in raw_data:
+        if status in absence_types:
+            summary_data[course_name][status] += 1
+            summary_data[course_name]['總缺課數量'] += 1
     
-    if extracted_data:
-        # 為了美觀，計算每個欄位的最大寬度
-        col_widths = [max(len(str(item)) for item in col) for col in zip(*extracted_data)]
-        # 由於課程名稱最長，需要確保它的寬度足夠
-        col_widths[2] = max(col_widths[2], 15) # 確保課號欄位至少有 15 個寬度
+    # 6. 列印計算後的總結表格
+    
+    print("\n" + "="*80)
+    print("                 【缺曠記錄總結與計算結果】")
+    print("="*80)
+    
+    if summary_data:
+        # 準備要顯示的欄位
+        columns = ['課程名稱'] + absence_types + ['總缺課數量']
+        output_rows = [columns]
         
-        for i, row in enumerate(extracted_data):
+        for course_name, counts in summary_data.items():
+            row = [course_name]
+            for status in absence_types:
+                row.append(counts.get(status, 0)) # 取得假別數量，若無則為 0
+            row.append(counts.get('總缺課數量', 0)) # 取得總缺課數量
+            output_rows.append(row)
+            
+        # 格式化輸出
+        # 將所有數值轉換為字串以便計算長度
+        str_output_rows = [[str(item) for item in row] for row in output_rows]
+
+        # 計算每個欄位的最大寬度
+        col_widths = [max(len(item) for item in col) for col in zip(*str_output_rows)]
+        # 確保「課程名稱」欄位有足夠的最小寬度
+        col_widths[0] = max(col_widths[0], 12) 
+
+        for i, row in enumerate(str_output_rows):
             # 格式化並列印行
             formatted_row = " | ".join(f"{item:<{col_widths[j]}}" for j, item in enumerate(row))
             print(formatted_row)
@@ -98,10 +121,10 @@ try:
     else:
         print("未找到缺曠記錄或表格中沒有資料。")
         
-    print("="*70)
+    print("="*80)
     
-    # 6. 結束
-    time.sleep(5) # 讓您有時間看到結果
+    # 7. 結束
+    time.sleep(5) 
     driver.quit()
     print("\n程式執行完畢，瀏覽器已關閉。")
 
