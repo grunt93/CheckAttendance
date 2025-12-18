@@ -4,6 +4,7 @@ from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC 
 import time
 from collections import defaultdict 
+from typing import Set, Dict, Any, List
 
 # ===============================================
 #                【設定變數區】
@@ -20,14 +21,14 @@ TARGET_URL = "https://std.uch.edu.tw/Std_Xerox/Miss_ct.aspx"
 # 缺曠記錄表格的 ID
 TABLE_ID = "ctl00_ContentPlaceHolder1_gw_absent"
 
-# 課程應計節次因子 (根據您提供的範例.txt資訊)
-COURSE_FACTORS = {
+# 課程應計節次因子 (作為主要列印清單)
+COURSE_FACTORS: Dict[str, int] = {
     "程式設計與應用(三)": 4,
     "資料庫系統與實習": 2,
     "網頁資料庫程式開發實作": 4,
     "廣域網路與實習": 4,
     "性別與文化": 2,
-    "RHCE紅帽Linux系統自動化": 4,
+    "RHCE紅帽Linux系統自動化": 4, 
 }
 
 try:
@@ -67,7 +68,7 @@ try:
     table = driver.find_element(By.ID, TABLE_ID)
     rows = table.find_elements(By.TAG_NAME, "tr")
     
-    raw_data = [] 
+    raw_data: List[Any] = [] 
     
     if len(rows) > 1:
         for row in rows[1:]:
@@ -87,7 +88,7 @@ try:
     # 遍歷原始資料 (課程名稱, 狀態)
     for course_name, status in raw_data: 
         if status in absence_types:
-            # 1. 計算總節次數 (總缺課數量)
+            # 計算總節次數 (總缺課數量)
             summary_data[course_name][status] += 1
             summary_data[course_name]['總缺課數量'] += 1
             
@@ -97,31 +98,62 @@ try:
     print("                   【缺曠記錄總結與計算結果】")
     print("="*85)
     
-    if COURSE_FACTORS:
+    # --- 聯集邏輯 ---
+    # 1. 取得所有在網頁上有記錄的課程名稱 (集合 A)
+    recorded_courses: Set[str] = set(summary_data.keys())
+    # 2. 取得所有在 COURSE_FACTORS 中定義的課程名稱 (集合 B)
+    factor_courses: Set[str] = set(COURSE_FACTORS.keys())
+    
+    # 3. 創建聯集 (A U B)，並進行排序，以 factor_courses 為優先順序
+    # 將 factor_courses 放在前面，確保它們的順序優先
+    # 這裡使用 factor_courses + 額外記錄的課程（去重）來決定輸出的順序
+    all_courses_set = factor_courses.union(recorded_courses)
+    
+    # 將 COURSE_FACTORS 中的課程放在前面，然後是其他有記錄的課程
+    # 為了保持一定的順序性 (例如按字母排序)，這裡我們使用排序後的集合
+    # 否則直接使用 list(all_courses_set) 順序會比較隨機
+    
+    # 優先保持 COURSE_FACTORS 的定義順序，然後是其他課程的字母順序
+    final_course_list: List[str] = list(factor_courses)
+    for course in sorted(list(recorded_courses - factor_courses)):
+        final_course_list.append(course)
+    # --- 聯集邏輯結束 ---
+
+
+    if final_course_list:
         # 準備要顯示的欄位 
         columns = ['課程名稱'] + absence_types + ['總缺課數量', '總天數']
         output_rows = [columns]
         
-        # 關鍵修改：迭代 COURSE_FACTORS 的鍵，確保輸出包含所有設定的課程名稱
-        for course_name in COURSE_FACTORS.keys():
-            # 即使該課程沒有缺課記錄，defaultdict 機制也會返回一個空的 defaultdict(float)
+        for course_name in final_course_list:
+            # 即使課程不在 summary_data 中 (例如: 該課程在 COURSE_FACTORS 但無缺曠記錄)
+            # defaultdict 機制會返回一個空的計數器 (所有數值為 0.0)
             counts = summary_data[course_name] 
 
             total_absent = counts.get('總缺課數量', 0)
-            factor = COURSE_FACTORS.get(course_name)
-            calculated_days = 0.0
+            factor = COURSE_FACTORS.get(course_name) # 嘗試從 COURSE_FACTORS 取得因子
+            calculated_days_str = "" 
 
-            # 計算總天數：總缺課數量 / 應計節次 (如果因子存在且缺課數大於 0)
-            if factor and total_absent > 0:
-                calculated_days = total_absent / factor
+            # 計算總天數
+            if factor:
+                # 因子存在，計算總天數
+                if total_absent > 0:
+                    calculated_days = total_absent / factor
+                    calculated_days_str = f"{calculated_days:.2f}"
+                else:
+                    calculated_days_str = "0.00"
+            else:
+                 # 因子不存在，顯示 N/A
+                 calculated_days_str = "N/A"
+                 if total_absent > 0:
+                     print(f"⚠️ 警告: 課程【{course_name}】有 {int(total_absent)} 筆缺課記錄，但缺少應計節次，總天數無法計算 (N/A)。請更新 COURSE_FACTORS。")
 
             row = [course_name]
             for status in absence_types:
                 row.append(int(counts.get(status, 0))) # 節次數量為整數
             row.append(int(total_absent)) # 總節次數量為整數
             
-            # 總天數為浮點數，格式化為小數點後兩位
-            row.append(f"{calculated_days:.2f}") 
+            row.append(calculated_days_str) # 總天數
             output_rows.append(row)
             
         # 格式化輸出
@@ -129,6 +161,7 @@ try:
 
         # 計算每個欄位的最大寬度
         col_widths = [max(len(item) for item in col) for col in zip(*str_output_rows)]
+        # 確保「課程名稱」欄位有足夠的最小寬度
         col_widths[0] = max(col_widths[0], 12) 
 
         for i, row in enumerate(str_output_rows):
@@ -137,7 +170,7 @@ try:
             if i == 0:
                 print("-" * (sum(col_widths) + 3 * (len(col_widths) - 1)))
     else:
-        print("COURSE_FACTORS 字典為空，請定義課程資訊。")
+        print("未找到任何課程資訊（COURSE_FACTORS 為空且網頁上無缺曠記錄）。")
         
     print("="*85)
     
