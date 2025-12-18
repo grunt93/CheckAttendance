@@ -1,4 +1,4 @@
-# scraper_core.py
+# 爬蟲核心邏輯
 
 import os # <--- 修正：新增 os 模組導入
 import time

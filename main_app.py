@@ -1,4 +1,4 @@
-# main_app.py
+#主程式結構
 
 import tkinter as tk
 from tkinter import ttk, messagebox

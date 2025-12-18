@@ -1,4 +1,4 @@
-# config_data.py
+# 集中管理所有常數、路徑和 JSON 檔案的讀寫操作。
 
 import os
 import sys
